@@ -25,20 +25,24 @@ if (!fs.existsSync(dataDir)) {
 // ✅ Persistent SQLite DB
 export const dbConnection = new DataSource({
     type: 'sqlite',
-    database: './data/veramo.sqlite',
+    database: path.join(process.cwd(), 'data', 'db.sqlite'),
     synchronize: true,
     entities: Entities,
 })
 
-    // ✅ Initialize inside async IIFE
-    ; (async () => {
-        try {
+// ✅ Export a function to initialize DB (called from main.ts)
+export async function initVeramoDB() {
+    try {
+        if (!dbConnection.isInitialized) {
             await dbConnection.initialize()
             console.log('✅ Veramo SQLite database connected!')
-        } catch (error) {
-            console.error('❌ Veramo DB connection failed:', error)
+            console.log('📂 Veramo DB path:', dbConnection.options.database)
         }
-    })()
+    } catch (error) {
+        console.error('❌ Veramo DB connection failed:', error)
+        throw error
+    }
+}
 
 const secretKey =
     process.env.VERAMO_SECRET_KEY ||

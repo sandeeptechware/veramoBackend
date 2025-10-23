@@ -13,9 +13,4 @@ export class RequestCredentialDto {
   @IsObject()
   @IsNotEmpty()
   claims: Record<string, any>
-
-  //Holder’s public key JWK for encryption
-  @IsObject()
-  @IsNotEmpty()
-  holderKeyJwk: any
 }

@@ -1,6 +1,6 @@
 // src/modules/issuer/services/issuer.service.ts
-import { Injectable, Logger } from '@nestjs/common';
-import { Repository } from 'typeorm';
+import { BadRequestException, Injectable, Logger } from '@nestjs/common';
+import { Repository, In } from 'typeorm';
 import { Issuer } from '../entities/issuer.entity';
 import { InjectRepository } from '@nestjs/typeorm';
 import { createHash } from 'crypto';
@@ -8,6 +8,7 @@ import { generateKeyPair, exportJWK, importJWK, CompactSign, CompactEncrypt } fr
 import { VeramoService } from '../../veramo/veramo.service';
 import { CredentialRequest } from '../entities/credential-request.entity';
 import { RequestCredentialDto } from '../dtos/request-credential.dto';
+import { agent } from '../../veramo/veramo.config';
 
 
 @Injectable()
@@ -95,14 +96,32 @@ export class IssuerService {
 
     async requestCredential(dto: RequestCredentialDto) {
         try {
+            this.logger.log(`📨 Received VC request: ${JSON.stringify(dto, null, 2)}`);
+
+            // 🧩 Resolve holder DID to get publicKeyJwk
+            const holderResolution = await this.veramoService.resolveDid(dto.subjectDid);
+            if (!holderResolution || !holderResolution.didDocument) {
+                throw new Error(`Failed to resolve DID: ${dto.subjectDid}`);
+            }
+
+            const verificationMethod = holderResolution.didDocument.verificationMethod?.[0];
+            const holderKeyJwk = verificationMethod?.publicKeyJwk;
+
+            if (!holderKeyJwk) {
+                throw new Error(`No publicKeyJwk found in DID Document for ${dto.subjectDid}`);
+            }
+
+            this.logger.log(`🔑 Resolved holder key: ${JSON.stringify(holderKeyJwk)}`);
+
+            // create and save request in DB
             const newRequest = this.credentialRequestRepo.create({
                 subjectDid: dto.subjectDid,
                 credentialType: dto.credentialType,
                 claims: dto.claims,
-                holderKeyJwk: dto.holderKeyJwk,
                 status: 'pending',
             })
             await this.credentialRequestRepo.save(newRequest)
+
             this.logger.log(`📥 New credential request: ${newRequest.id}`)
             return {
                 message: 'Credential request submitted successfully',
@@ -115,11 +134,27 @@ export class IssuerService {
         }
     }
 
+    async getRequestsForHolder(holderDid: string) {
+        const requests = await this.credentialRequestRepo.find({
+            where: { subjectDid: holderDid },
+            order: { createdAt: 'DESC' },
+        });
+
+        return requests.map(r => ({
+            id: r.id,
+            credentialType: r.credentialType,
+            status: r.status,
+            issuedAt: r.issuedAt,
+        }));
+    }
+
     async issueCredentialFromRequest(requestId: string) {
+        console.log('requestId in table: ', requestId);
         // 1️⃣ Fetch the credential request
         const request = await this.credentialRequestRepo.findOne({
             where: { id: requestId },
         })
+        console.log('request response: ', request);
         if (!request) throw new Error('Credential request not found')
 
         if (request.status === 'issued') {
@@ -131,20 +166,63 @@ export class IssuerService {
             order: { createdAt: 'ASC' },
         })
         if (!issuer) throw new Error('No issuer found in database')
+        if (!issuer.privateJwk || !issuer.privateJwk.d) {
+            throw new Error('Issuer private key missing');
+        }
 
         // 3️⃣ Build the Verifiable Credential payload
+        const issuanceDate = new Date().toISOString();
+        const expirationDate = new Date(
+            new Date().setFullYear(new Date().getFullYear() + 5)
+        ).toISOString();
         const vc = {
-            '@context': ['https://www.w3.org/2018/credentials/v1'],
+            '@context': [
+                'https://www.w3.org/2018/credentials/v1',
+                'https://schema.org',
+                {
+                    ExperienceCredential: 'https://example.com/credentials/experience',
+                    employee: 'https://schema.org/Person',
+                    employer: 'https://schema.org/Organization',
+                    jobTitle: 'https://schema.org/jobTitle',
+                    startDate: 'https://schema.org/startDate',
+                    endDate: 'https://schema.org/endDate',
+                    employmentType: 'https://schema.org/employmentType',
+                    experienceSummary: 'https://schema.org/description',
+                },
+            ],
             id: `urn:uuid:${this.randomUuid()}`,
             type: ['VerifiableCredential', request.credentialType],
-            issuer: issuer.did,
-            issuanceDate: new Date().toISOString(),
-            credentialSubject: request.claims,
+            issuer: {
+                id: issuer.did,
+                name: issuer.organization || 'Yaatra Inc.',
+                url: `https://${issuer.did.replace('did:web:', '')}`,
+            },
+            issuanceDate,
+            expirationDate,
+            credentialSubject: {
+                id: request.subjectDid,
+                employee: {
+                    name: request.claims?.name || 'Unknown',
+                    email: request.claims?.email || 'employee@company.com',
+                },
+                employer: {
+                    name: issuer.organization || 'Yaatra Inc.',
+                    address: request.claims?.address || 'Company HQ',
+                },
+                jobTitle: request.claims?.position || 'Employee',
+                employmentType: request.claims?.employmentType || 'Full-time',
+                startDate: request.claims?.startDate || '2021-01-01',
+                endDate: request.claims?.endDate || new Date().toISOString().split('T')[0],
+                experienceSummary:
+                    request.claims?.experienceSummary ||
+                    `Served as ${request.claims?.position || 'Employee'} in ${issuer.organization || 'Company'
+                    } contributing to projects and development initiatives.`,
+            },
         }
 
         // 4️⃣ Import issuer private key (Ed25519)
         const privateJwk = issuer.privateJwk
-        if (!privateJwk || !privateJwk.d) {
+        if (!privateJwk) {
             throw new Error('Issuer private key missing')
         }
         const issuerPrivateKey = await importJWK(privateJwk, 'EdDSA')
@@ -154,11 +232,34 @@ export class IssuerService {
             .setProtectedHeader({ alg: 'EdDSA', typ: 'JWT' })
             .sign(issuerPrivateKey)
 
+
         // 6️⃣ Encrypt for holder using holder’s public key (X25519)
-        const holderPublicKeyJwk = request.holderKeyJwk
-        if (!holderPublicKeyJwk || holderPublicKeyJwk.crv !== 'X25519') {
+        let holderPublicKeyJwk = request.holderKeyJwk
+        if (!holderPublicKeyJwk) {
+            console.log(`Resolving holder DID: ${request.subjectDid}`);
+            const resolved = await agent.resolveDid({ didUrl: request.subjectDid });
+            const holderDoc = resolved.didDocument;
+
+            if (!holderDoc || !holderDoc.verificationMethod?.length) {
+                throw new Error(`Failed to resolve holder DID Document: ${request.subjectDid}`);
+            };
+
+            const key = holderDoc.verificationMethod.find(
+                (v: any) => v.publicKeyJwk?.crv === 'X25519'
+            ) || holderDoc.verificationMethod[0];
+
+            if (!key || !key.publicKeyJwk) {
+                throw new Error(`No suitable publicKeyJwk found for holder DID: ${request.subjectDid}`);
+            }
+
+            holderPublicKeyJwk = key.publicKeyJwk;
+            console.log('✅ Resolved holder public key JWK:', holderPublicKeyJwk);
+        }
+
+        if (holderPublicKeyJwk.crv !== 'X25519') {
             throw new Error('Holder public key must be X25519 JWK')
         }
+
         const holderKey = await importJWK(holderPublicKeyJwk, 'ECDH-ES')
 
         const jwe = await new CompactEncrypt(Buffer.from(jws))

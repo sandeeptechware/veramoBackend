@@ -1,5 +1,5 @@
 // src/modules/issuer/controllers/issuer.controller.ts
-import { Body, Controller, Post, Param } from '@nestjs/common'
+import { Body, Controller, Post, Get, Param, Logger } from '@nestjs/common'
 import { IssuerService } from '../services/issuer.service'
 import { CreateIssuerDto } from '../dtos/create-issuer.dto'
 import { IssueCredentialDto } from '../dtos/issue-credential.dto'
@@ -7,7 +7,14 @@ import { RequestCredentialDto } from '../dtos/request-credential.dto'
 
 @Controller('issuer')
 export class IssuerController {
-  constructor(private readonly issuerService: IssuerService) {}
+  private readonly logger = new Logger(IssuerController.name);
+  constructor(private readonly issuerService: IssuerService) { }
+
+  @Post('ping')
+  ping(@Body() body: any) {
+    console.log('📩 /issuer/ping body:', body);
+    return { message: 'pong', received: body };
+  }
 
   /**
    * Create a new issuer DID (did:web)
@@ -25,10 +32,18 @@ export class IssuerController {
 
   @Post('request-credential')
   async requestCredential(@Body() body: RequestCredentialDto) {
+    this.logger.log(`📨 Received VC request: ${JSON.stringify(body, null, 2)}`);
     return this.issuerService.requestCredential(body)
   }
 
-  @Post('issue-credential/:requestId')
+  @Get('requests/:holderDid')
+  async getRequestsForHolder(@Param('holderDid') holderDid: string) {
+    console.log('📥 holderDid param:', holderDid);
+    return this.issuerService.getRequestsForHolder(holderDid);
+  }
+
+
+  @Get('issue-credential/:requestId')
   async issueCredential(@Param('requestId') requestId: string) {
     return this.issuerService.issueCredentialFromRequest(requestId)
   }
