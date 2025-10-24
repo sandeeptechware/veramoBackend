@@ -1,13 +1,17 @@
 // src/modules/issuer/entities/credential-request.entity.ts
 import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn } from 'typeorm'
 
-@Entity()
+@Entity('credential_request')
 export class CredentialRequest {
   @PrimaryGeneratedColumn('uuid')
   id: string
 
-  @Column()
-  subjectDid: string
+  // Unique case linking Verifier → Issuer → Holder
+  @Column({ unique: true })
+  caseId: string
+
+  @Column({ nullable: true })
+  subjectDid?: string
 
   @Column()
   credentialType: string
@@ -19,8 +23,8 @@ export class CredentialRequest {
   @Column('simple-json', { nullable: true })
   holderKeyJwk?: Record<string, any>
 
-  @Column({ default: 'pending' })
-  status: 'pending' | 'approved' | 'rejected' | 'issued'
+  @Column({ default: 'pending_holder' })
+  status: 'pending_holder' | 'holder_ready' | 'issued' | 'rejected' | 'shared_with_verifier' | 'verified'
 
   // ✅ Timestamp when the credential was issued
   @Column({ type: 'datetime', nullable: true })

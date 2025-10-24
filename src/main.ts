@@ -10,7 +10,11 @@ async function bootstrap() {
   const app = await NestFactory.create(AppModule)
 
   // Validate incoming DTOs
-  app.useGlobalPipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: false }))
+  app.useGlobalPipes(new ValidationPipe({ 
+    whitelist: true, // remove unexpected fields
+    forbidNonWhitelisted: false,
+    transform: true, // auto-transform payloads to DTO types
+   }))
 
   const port = process.env.PORT || 3333
   await app.listen(port)

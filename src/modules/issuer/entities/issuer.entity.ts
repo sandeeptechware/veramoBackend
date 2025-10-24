@@ -1,6 +1,6 @@
 import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn } from 'typeorm';
 
-@Entity()
+@Entity('issuer')
 export class Issuer {
   @PrimaryGeneratedColumn('uuid')
   id: string;
@@ -9,7 +9,7 @@ export class Issuer {
   did: string;
 
   // Public JWK in JSON form
-  @Column('simple-json')
+  @Column('simple-json', { nullable: true })
   publicJwk: Record<string, any>;
 
   //Private JWK in JSON form (encrypt in production)

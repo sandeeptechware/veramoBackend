@@ -9,8 +9,8 @@ import { IssuedCredential } from './entities/issued-credential.entity';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([Issuer, CredentialRequest, IssuedCredential]),
-    VeramoModule,
+    TypeOrmModule.forFeature([Issuer, CredentialRequest, /* IssuedCredential */]),
+    // VeramoModule,
   ],
   controllers: [IssuerController],
   providers: [IssuerService],

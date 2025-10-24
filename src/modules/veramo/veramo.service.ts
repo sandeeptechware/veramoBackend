@@ -26,7 +26,7 @@ export class VeramoService {
         const vc = await agent.createVerifiableCredential({
             credential: {
                 issuer: { id: issuerDid },
-                credentialSubject: claims,
+                credentialSubject: { id: subjectDid, ...claims },
             },
             proofFormat: 'jwt',
         })
