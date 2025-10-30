@@ -83,7 +83,7 @@ import 'dotenv/config'
           database: dbConnection.options.database as string,
           synchronize: true, // ✅ Auto-sync in dev mode
           autoLoadEntities: true,
-          dropSchema: true, // For testing: reset DB on each app start
+          // dropSchema: true, // For testing: reset DB on each app start
           entities: [Issuer, CredentialRequest],
         }
       },

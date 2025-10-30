@@ -68,7 +68,13 @@ export class IssuerService {
         // }
 
         try {
-            const identifier = await agent.didManagerCreate({ provider: 'did:web', alias: domain });
+            console.log('first');
+            const identifier = await agent.didManagerCreate({
+                provider: 'did:web',
+                alias: domain,
+                options: { keyType: 'Ed25519', domain: domain }
+            });
+            console.log('second');
             this.logger.log(`created issuer DID: ${identifier.did}`);
 
             const existing = await this.issuerRepo.findOne({ where: { did: identifier.did } })
@@ -474,6 +480,13 @@ export class IssuerService {
     //         issuanceDate: vc.issuanceDate,
     //     };
     // }
+
+    async getCaseStatus(caseId: string) {
+        const request = await this.credentialRequestRepo.findOne({ where: { caseId } })
+        if (!request) throw new Error(`No case found for caseId: ${caseId}`)
+        return { caseId, status: request.status, issuedAt: request.issuedAt }
+    }
+
 
     private randomUuid() {
         // simple UUID v4 (not cryptographically perfect; fine for demo)
